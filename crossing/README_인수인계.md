@@ -42,7 +42,8 @@
 | `mkdoc.py` | Word 보고서 → `out\94개소_현장사진_보고서.docx` |
 | `run3.py` | 자동 파이프라인 (fix2 대기 → geo3 → 좌표 병합 → 재촬영 → 시트 → 보고서) |
 | `next.py` | **(v2 추가)** run3 완료 확인/대기/재실행 후 `status.txt` 요약 생성. `python next.py [--force-cap] [--force-doc]` |
-| `review.json` | **(v2 추가 예정)** 2-1절 검수 결과 |
+| `review_v2.json` | 22:45 썸네일 전수검수 결과 (✓37 / △11 / ✗27 / －11 / 좌표없음 8) |
+| `geo4.py` | **(v2 추가)** OSM에 도로가 없는 구간용: 선로 따라 **카카오 로드뷰 지점을 스캔**해 선로 10m 이내 로드뷰가 있는 곳 = 도로가 선로를 건너는 곳으로 후보 추출 → ✓개소를 앵커로 km→선로거리 보정 후 매칭. 출력 `coords4.json`, `cand4.md`(후보별 로드뷰 링크), `--apply` 로 coords.json 반영 |
 | 로그 | `run_all.log`(파이프라인), `geo.log`, `fix2.log`, `geo3.log`, `cap.log`, `next.log` |
 
 ## 4. 핵심 기술
@@ -81,6 +82,14 @@
 | 로드뷰는 있으나 각도 ±30° 밖 | 일부 | 건널목 진입로가 선로와 비스듬 | pick 각도 허용을 ±45° 로 완화하는 옵션 추가 검토 |
 
 ## 7. 다음에 할 일 (v2: 명령 포함으로 구체화)
+0. **✗27 + 좌표없음 8 + △11 일괄 재산출 (geo4)**:
+   ```powershell
+   python geo4.py            # 카카오 요청 수천 건, 20~40분. cache4.json 으로 중단 후 이어짐
+   # cand4.md 를 폰으로 열어 후보 링크 탭 → 차단기 보이면 OK. 2·3번 후보가 맞으면 picks.json 에 {"10": 2}
+   python geo4.py --apply    # conf>=0.5 자동 + picks.json 반영, coords_v3.json 백업, result.json 해당 항목 삭제
+   python cap.py; python sheet2.py <번호들>; python mkdoc.py
+   ```
+   원리: OSM 시골 도로가 빠져 있어도 선로 기하는 있고, 카카오 로드뷰 차량은 실제 도로만 달리므로 "선로 바로 위에 로드뷰 지점이 있는 곳"이 곧 도로-선로 교차점. 선로 bridge/tunnel 태그·도로 bridge 태그로 입체교차는 ⚠ 표시.
 1. **파이프라인 완료 확인**: `python next.py` → `status.txt` 생성. `run3 all done` 없고 프로세스도 없으면 next.py가 `run3.py` 재실행(geo3는 cache로 이어짐).
 2. **geo3 결과 점검**: `status.txt` 의 `km추정(교차점없음)` 목록과 `moved_m ≥ 100m` 목록 확인. moved_m 큰 건은 반드시 사진으로 재검수.
 3. **전수 검수**: `sheet_all.jpg` 를 구간별로 잘라 보며 2-1절 코드 부여 → `review.json` 작성.
