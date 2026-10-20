@@ -1,0 +1,212 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Claude 사용량</title>
+<style>
+:root{--bg:#f6f7f9;--card:#fff;--fg:#1d2330;--sub:#6b7280;--line:#e5e7eb;--accent:#d97757;--ok:#2f9e6b;--warn:#e0a100;--bad:#d64545}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){--bg:#0f1115;--card:#181b22;--fg:#e8eaf0;--sub:#8b93a7;--line:#2a2f3a;--accent:#e8906f;--ok:#3cc086;--warn:#f0b429;--bad:#ef6464}}
+:root[data-theme="dark"]{--bg:#0f1115;--card:#181b22;--fg:#e8eaf0;--sub:#8b93a7;--line:#2a2f3a;--accent:#e8906f;--ok:#3cc086;--warn:#f0b429;--bad:#ef6464}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font-family:system-ui,-apple-system,"Malgun Gothic",sans-serif;padding:16px;padding-bottom:max(16px,env(safe-area-inset-bottom));-webkit-text-size-adjust:100%}
+.wrap{max-width:560px;margin:0 auto}
+header{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}
+h1{font-size:20px;margin:0}
+.live{font-size:12px;color:var(--sub);display:flex;align-items:center;gap:6px}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--ok)}
+.dot.off{background:var(--bad)}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px;margin-bottom:12px}
+.label{font-size:13px;color:var(--sub);margin-bottom:6px}
+.big{font-size:32px;font-weight:700;font-variant-numeric:tabular-nums;line-height:1.2}
+.big small{font-size:14px;font-weight:500;color:var(--sub)}
+.bar{height:12px;background:var(--line);border-radius:999px;overflow:hidden;margin:12px 0 8px}
+.bar>div{height:100%;border-radius:999px;background:var(--ok);transition:width .6s ease,background .3s}
+.row{display:flex;justify-content:space-between;gap:8px;font-size:14px;margin-top:4px}
+.muted{color:var(--sub)}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.grid .card{margin-bottom:0}
+.stat{font-size:20px;font-weight:600;font-variant-numeric:tabular-nums}
+.chart{display:flex;align-items:flex-end;gap:6px;height:120px;margin-top:8px}
+.col{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%}
+.col .v{width:100%;background:var(--accent);border-radius:6px 6px 2px 2px;min-height:2px;transition:height .6s ease}
+.col .d{font-size:11px;color:var(--sub);margin-top:4px}
+.col .n{font-size:10px;color:var(--sub);margin-bottom:2px;min-height:12px}
+table{width:100%;border-collapse:collapse;font-size:13px}
+td,th{padding:6px 0;text-align:left;border-bottom:1px solid var(--line)}
+th{color:var(--sub);font-weight:500}
+td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
+.err{color:var(--bad);font-size:13px;margin-top:8px;display:none}
+.cfg{font-size:12px;color:var(--sub);margin-top:14px;text-align:center}
+@media (max-width:360px){.grid{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Claude 사용량</h1>
+    <div class="live"><span class="dot" id="dot"></span><span id="status">연결 중…</span></div>
+  </header>
+
+  <div class="card">
+    <div class="label">5시간 구간 · 사용 토큰</div>
+    <div class="big" id="w-used">–</div>
+    <div class="bar"><div id="w-bar" style="width:0%"></div></div>
+    <div class="row"><span id="w-pct" class="muted">한도 미설정</span><span id="w-rem" class="muted"></span></div>
+    <div class="row"><span class="muted">리셋 예상</span><span id="w-reset">–</span></div>
+  </div>
+
+  <div class="grid">
+    <div class="card">
+      <div class="label">오늘 (KST)</div>
+      <div class="stat" id="t-used">–</div>
+      <div class="muted" style="font-size:12px;margin-top:4px" id="t-msg"></div>
+    </div>
+    <div class="card">
+      <div class="label">오늘 잔여량</div>
+      <div class="stat" id="t-rem">–</div>
+      <div class="muted" style="font-size:12px;margin-top:4px" id="t-pct"></div>
+    </div>
+  </div>
+
+  <div class="card" style="margin-top:12px">
+    <div class="label">최근 7일 (입력+출력+캐시 생성)</div>
+    <div class="chart" id="chart"></div>
+  </div>
+
+  <div class="card">
+    <div class="label">5시간 구간 · 모델별</div>
+    <table>
+      <thead><tr><th>모델</th><th class="num">입력</th><th class="num">출력</th><th class="num">캐시읽기</th></tr></thead>
+      <tbody id="models"><tr><td colspan="4" class="muted">데이터 없음</td></tr></tbody>
+    </table>
+  </div>
+
+  <div class="err" id="err"></div>
+  <div class="cfg" id="foot">5초마다 자동 갱신</div>
+</div>
+
+<script>
+(function () {
+  var INTERVAL = 5000;
+  var $ = function (id) { return document.getElementById(id); };
+
+  function fmt(n) {
+    if (n == null) return "–";
+    if (n >= 1e6) return (n / 1e6).toFixed(2) + "M";
+    if (n >= 1e3) return (n / 1e3).toFixed(1) + "K";
+    return String(n);
+  }
+  function fmtFull(n) { return n == null ? "–" : n.toLocaleString("ko-KR"); }
+  function fmtTime(iso) {
+    if (!iso) return "–";
+    var d = new Date(iso);
+    return d.toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit", hour12: false });
+  }
+  function fmtRemain(iso) {
+    if (!iso) return "";
+    var ms = new Date(iso) - Date.now();
+    if (ms <= 0) return "곧 리셋";
+    var m = Math.round(ms / 60000);
+    return Math.floor(m / 60) + "시간 " + (m % 60) + "분 후";
+  }
+  function barColor(p) {
+    if (p == null) return "var(--ok)";
+    if (p >= 90) return "var(--bad)";
+    if (p >= 70) return "var(--warn)";
+    return "var(--ok)";
+  }
+  function setPct(barId, p) {
+    var pct = p == null ? 0 : Math.min(p, 100);
+    var el = $(barId);
+    el.style.width = pct + "%";
+    el.style.background = barColor(p);
+  }
+
+  function render(d) {
+    var w = d.window;
+    $("w-used").textContent = fmtFull(w.counted);
+    if (w.limit) {
+      setPct("w-bar", w.percent);
+      $("w-pct").textContent = "사용률 " + w.percent + "%";
+      $("w-rem").textContent = "잔여 " + fmtFull(w.remaining);
+    } else {
+      setPct("w-bar", 0);
+      $("w-pct").textContent = "한도 미설정 (--window-limit)";
+      $("w-rem").textContent = "";
+    }
+    $("w-reset").textContent = w.reset_at ? fmtTime(w.reset_at) + " (" + fmtRemain(w.reset_at) + ")" : "사용 없음";
+
+    var t = d.today;
+    $("t-used").textContent = fmt(t.counted);
+    $("t-msg").textContent = "응답 " + t.messages + "회";
+    if (t.limit) {
+      $("t-rem").textContent = fmt(t.remaining);
+      $("t-pct").textContent = "사용률 " + t.percent + "% / 한도 " + fmt(t.limit);
+    } else {
+      $("t-rem").textContent = "–";
+      $("t-pct").textContent = "";
+    }
+
+    var max = Math.max.apply(null, d.days.map(function (x) { return x.counted; }).concat([1]));
+    $("chart").innerHTML = "";
+    d.days.forEach(function (x) {
+      var col = document.createElement("div");
+      col.className = "col";
+      var n = document.createElement("div"); n.className = "n"; n.textContent = fmt(x.counted);
+      var v = document.createElement("div"); v.className = "v";
+      v.style.height = Math.max(x.counted / max * 100, 1) + "%";
+      var dl = document.createElement("div"); dl.className = "d";
+      dl.textContent = x.date.slice(5).replace("-", "/");
+      col.appendChild(n); col.appendChild(v); col.appendChild(dl);
+      $("chart").appendChild(col);
+    });
+
+    var tbody = $("models");
+    tbody.innerHTML = "";
+    var names = Object.keys(d.models);
+    if (!names.length) {
+      tbody.innerHTML = '<tr><td colspan="4" class="muted">데이터 없음</td></tr>';
+    }
+    names.forEach(function (name) {
+      var m = d.models[name];
+      var tr = document.createElement("tr");
+      [name, fmt(m.input), fmt(m.output), fmt(m.cache_read)].forEach(function (txt, i) {
+        var td = document.createElement("td");
+        if (i) td.className = "num";
+        td.textContent = txt;
+        tr.appendChild(td);
+      });
+      tbody.appendChild(tr);
+    });
+  }
+
+  var timer = null;
+  function poll() {
+    fetch("api/usage", { cache: "no-store" })
+      .then(function (r) {
+        if (!r.ok) throw new Error("HTTP " + r.status);
+        return r.json();
+      })
+      .then(function (d) {
+        render(d);
+        $("dot").classList.remove("off");
+        $("status").textContent = "실시간 · " + fmtTime(d.generated_at);
+        $("err").style.display = "none";
+      })
+      .catch(function (e) {
+        $("dot").classList.add("off");
+        $("status").textContent = "연결 끊김";
+        $("err").textContent = "서버 응답 없음: " + e.message;
+        $("err").style.display = "block";
+      });
+  }
+  poll();
+  timer = setInterval(poll, INTERVAL);
+  document.addEventListener("visibilitychange", function () {
+    if (!document.hidden) poll();
+  });
+})();
+</script>
+</body>
+</html>
