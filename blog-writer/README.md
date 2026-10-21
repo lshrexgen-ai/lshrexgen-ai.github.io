@@ -36,3 +36,14 @@ python write_post.py --topic "성수동 카페 후기" --style style.txt --photo
 - `photos/`와 `output/`은 `.gitignore`에 들어 있어 저장소에 올라가지 않습니다.
 - HEIC 사진은 브라우저 미리보기에 안 나올 수 있습니다. JPG로 바꿔 넣으세요.
 - 본문 복사는 서식 있는 텍스트로 복사합니다. 스마트에디터가 붙여넣은 서식을 얼마나 유지하는지는 직접 확인해 보세요.
+
+## 참고 블로그 구조 추출
+
+```bash
+python extract_post.py https://m.blog.naver.com/블로그ID          # 가장 최근 글
+python extract_post.py https://m.blog.naver.com/블로그ID/글번호     # 특정 글
+```
+
+- 문단 길이, 사진 자리, 인용구, 스티커, 지도 위치만 `output/reference_structure.txt`에 저장합니다.
+- 원문 문장은 저장하지 않습니다. 저장된 틀을 `write_post.py`의 입력으로 쓰고, 내용은 새로 채웁니다.
+- 네이버 블로그 도메인(`m.blog.naver.com`)이 세션에서 허용되어 있어야 합니다.
