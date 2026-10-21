@@ -17,19 +17,15 @@ Claude API 사용 시 ANTHROPIC_API_KEY 환경 변수가 필요합니다.
 
 import argparse
 import html
-import json
 import os
 import re
 import sys
-import urllib.request
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 PHOTO_EXTS = {".jpg", ".jpeg", ".png", ".gif", ".webp"}
 PHOTO_RE = re.compile(r"^\[사진:\s*(.+?)\]$")
-API_URL = "https://api.anthropic.com/v1/messages"
-API_VERSION = "2023-06-01"
-DEFAULT_MODEL = "claude-sonnet-5-5"
+DEFAULT_MODEL = "claude-opus-5-5"
 
 PAGE_TEMPLATE = """<!doctype html>
 <html lang="ko">
@@ -169,18 +165,15 @@ def generate_draft(topic, style_text, photo_count, model):
         "max_tokens": 3000,
         "messages": [{"role": "user", "content": prompt}],
     }
-    req = urllib.request.Request(
-        API_URL,
-        data=json.dumps(body).encode("utf-8"),
-        headers={
-            "x-api-key": api_key,
-            "anthropic-version": API_VERSION,
-            "content-type": "application/json",
-        },
+    from anthropic import Anthropic
+
+    client = Anthropic(api_key=api_key)
+    message = client.messages.create(
+        model=model,
+        max_tokens=3000,
+        messages=[{"role": "user", "content": prompt}],
     )
-    with urllib.request.urlopen(req, timeout=120) as resp:
-        data = json.load(resp)
-    return "".join(block.get("text", "") for block in data["content"])
+    return message.content[0].text
 
 
 def main():
@@ -188,7 +181,7 @@ def main():
     ap.add_argument("draft", nargs="?", help="직접 쓴 초안 파일 경로")
     ap.add_argument("--topic", help="Claude API로 초안을 만들 주제")
     ap.add_argument("--style", help="말투 참고용 텍스트 파일 경로")
-    ap.add_argument("--photo-count", type=int, default=4, help="API 초안의 사진 자리 개수")
+    ap.add_argument("--photo-count", type=int, default=3, help="API 초안의 사진 자리 개수")
     ap.add_argument("--photos", default=str(HERE / "photos"), help="사진 폴더")
     ap.add_argument("--out", default=str(HERE / "output" / "post.html"), help="출력 HTML 경로")
     ap.add_argument("--model", default=os.environ.get("CLAUDE_MODEL", DEFAULT_MODEL))
