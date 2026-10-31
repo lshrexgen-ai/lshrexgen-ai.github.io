@@ -1,0 +1,220 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>안개 타일 생존</title>
+<style>
+:root{--bg:#10161c;--card:#18222b;--line:#2a3743;--ink:#e6edf3;--mut:#93a1ad;--acc:#5fb3cf;--bad:#f0806f;--ok:#6cc592}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.5 system-ui,"Malgun Gothic",sans-serif;padding:12px}
+.wrap{max-width:760px;margin:0 auto;display:grid;gap:10px}
+h1{font-size:18px;margin:0}
+.bar{display:flex;flex-wrap:wrap;gap:6px 14px;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:8px 12px;font-variant-numeric:tabular-nums}
+.bar b{font-weight:600}
+.row{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+button{font:inherit;color:var(--ink);background:var(--card);border:1px solid var(--line);border-radius:8px;padding:5px 10px;cursor:pointer}
+button:hover:not(:disabled){border-color:var(--acc)}
+button:disabled{opacity:.45;cursor:default}
+button[aria-pressed=true]{background:var(--acc);border-color:var(--acc);color:#04202b}
+#grid{display:grid;grid-template-columns:repeat(11,1fr);gap:3px}
+.t{aspect-ratio:1;border-radius:6px;border:1px solid var(--line);background:#0b1014;font-size:clamp(14px,3.6vw,24px);display:flex;align-items:center;justify-content:center;position:relative;padding:0}
+.t.fog{color:#2a3743}
+.t.front{background:#14202a;border-style:dashed;border-color:var(--acc);color:var(--acc)}
+.t.owned{background:#1c2b22;border-color:#2f5a40}
+.t.sel{outline:2px solid var(--ink)}
+.t .b{position:absolute;right:2px;bottom:0;font-size:10px}
+.t .lv{position:absolute;left:3px;top:0;font-size:9px;color:var(--mut)}
+.panel,.log{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:10px 12px}
+.log{max-height:130px;overflow:auto;font-size:12.5px;color:var(--mut)}
+.log div.bad{color:var(--bad)} .log div.ok{color:var(--ok)}
+.warn{color:var(--bad)}
+.mut{color:var(--mut)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>🏕️ 안개 타일 생존</h1>
+  <div class="bar" id="res"></div>
+  <div class="row">
+    <span class="mut">속도</span>
+    <span class="row" id="speeds"></span>
+    <span style="flex:1"></span>
+    <button id="reset">새 게임</button>
+  </div>
+  <div id="grid"></div>
+  <div class="panel" id="info"></div>
+  <div class="log" id="log"></div>
+  <div class="mut" style="font-size:12px">쉘터에 인접한 안개 타일을 개척해 영토를 넓히세요. 자원 타일에 건물을 지어 생산을 늘리고, 주기적으로 오는 좀비 습격을 방어탑과 생존자로 막아내세요. 진행은 자동 저장됩니다.</div>
+</div>
+<script>
+(()=>{
+const N=11, C=5, KEY="fogtiles-v1";
+const T={
+  forest:{n:"숲",e:"🌲",r:"wood"}, field:{n:"들판",e:"🌾",r:"food"}, rock:{n:"바위산",e:"⛰️",r:"stone"},
+  lake:{n:"호수",e:"🌊",r:"food"}, ruin:{n:"폐허",e:"🏚️"}, nest:{n:"좀비 소굴",e:"🧟"}, base:{n:"쉘터",e:"🏕️"}
+};
+const RN={wood:"🪵 목재",food:"🍖 식량",stone:"🪨 석재"};
+const B={
+  farm:{n:"농장",e:"🧺",cost:{wood:10},on:["field","lake"],d:"식량 +1/s (레벨당)"},
+  saw:{n:"벌목장",e:"🪓",cost:{wood:10},on:["forest"],d:"목재 +1/s"},
+  quarry:{n:"채석장",e:"⛏️",cost:{wood:15},on:["rock"],d:"석재 +1/s"},
+  tower:{n:"방어탑",e:"🗼",cost:{wood:10,stone:10},on:["forest","field","rock","ruin","nest"],d:"방어력 +4"},
+  house:{n:"주거지",e:"🏠",cost:{wood:15,stone:5},on:["forest","field","rock","ruin","nest"],d:"수용 인원 +3"}
+};
+const SPEEDS=[1,2,5,10];
+let S, speed=1, sel=null, tick=null;
+
+const rnd=a=>a[Math.floor(Math.random()*a.length)];
+function pickType(){
+  const w=[["forest",25],["field",25],["rock",20],["lake",8],["ruin",8],["nest",14]];
+  let x=Math.random()*100;
+  for(const [k,v] of w){ if((x-=v)<0) return k; } return "field";
+}
+function newState(){
+  const g=[];
+  for(let y=0;y<N;y++){ g.push([]); for(let x=0;x<N;x++) g[y].push({t:pickType(),s:"fog",b:null,lv:0}); }
+  g[C][C]={t:"base",s:"owned",b:null,lv:0};
+  return {g,res:{wood:30,food:30,stone:8},pop:3,wave:0,wt:60,gt:0,pt:0,st:0,over:false,log:[]};
+}
+function load(){ try{ const j=localStorage.getItem(KEY); if(j) return JSON.parse(j);}catch(e){} return null; }
+function save(){ try{ localStorage.setItem(KEY,JSON.stringify(S)); }catch(e){} }
+
+const owned=()=>{let n=0;S.g.forEach(r=>r.forEach(t=>{if(t.s==="owned")n++}));return n;};
+function front(x,y){
+  if(S.g[y][x].s!=="fog") return false;
+  return [[1,0],[-1,0],[0,1],[0,-1]].some(([dx,dy])=>{const a=S.g[y+dy]?.[x+dx];return a&&a.s==="owned";});
+}
+function stats(){
+  let cap=6,def=3+S.pop*0.5,prod={wood:0,food:0,stone:0};
+  S.g.forEach(r=>r.forEach(t=>{
+    if(t.s!=="owned") return;
+    if(t.t==="forest") prod.wood+=0.2; if(t.t==="field"||t.t==="lake") prod.food+=0.2; if(t.t==="rock") prod.stone+=0.2;
+    if(t.b==="farm") prod.food+=t.lv; if(t.b==="saw") prod.wood+=t.lv; if(t.b==="quarry") prod.stone+=t.lv;
+    if(t.b==="tower") def+=4*t.lv; if(t.b==="house") cap+=3*t.lv;
+  }));
+  return {cap,def,prod,eat:S.pop*0.1};
+}
+const clearCost=()=>({wood:Math.round(4+owned()*1.5)});
+const nestPower=(x,y)=>6+Math.max(Math.abs(x-C),Math.abs(y-C))*3;
+const can=c=>Object.entries(c).every(([k,v])=>S.res[k]>=v);
+const pay=c=>Object.entries(c).forEach(([k,v])=>S.res[k]-=v);
+const fmtC=c=>Object.entries(c).map(([k,v])=>RN[k]+" "+v).join(" ");
+function log(m,k){ S.log.unshift({m,k}); S.log.length=Math.min(S.log.length,40); }
+
+function step(dt){
+  if(S.over) return;
+  const st=stats();
+  for(const k in st.prod) S.res[k]+=st.prod[k]*dt;
+  S.res.food-=st.eat*dt;
+  if(S.res.food<0){ S.res.food=0; S.st+=dt; if(S.st>=5){ S.st=0; S.pop--; log("굶주림으로 생존자 1명을 잃었습니다.","bad"); } } else S.st=0;
+  S.gt+=dt;
+  if(S.gt>=10){ S.gt=0; if(S.pop<st.cap && S.res.food>=5){ S.pop++; log("새 생존자가 합류했습니다.","ok"); } }
+  S.wt-=dt;
+  if(S.wt<=0){ doWave(st); S.wt=60; }
+  if(S.pop<=0){ S.over=true; log("생존자가 모두 사라졌습니다. 게임 오버 — 버틴 습격 "+S.wave+"회","bad"); }
+}
+function doWave(st){
+  S.wave++;
+  const pow=4+S.wave*3;
+  if(st.def>=pow){ log(`습격 ${S.wave}: 좀비 ${pow} 격퇴 (방어 ${st.def.toFixed(1)})`,"ok"); }
+  else{
+    const lost=Math.min(S.pop,Math.ceil((pow-st.def)/4));
+    S.pop-=lost; S.res.food*=0.75;
+    log(`습격 ${S.wave}: 방어 ${st.def.toFixed(1)} < ${pow}. 생존자 ${lost}명 사망, 식량 25% 약탈`,"bad");
+  }
+}
+
+function clearTile(x,y){
+  const t=S.g[y][x]; if(!front(x,y)) return;
+  const c=clearCost(); if(!can(c)) return;
+  if(t.t==="nest"){
+    const p=nestPower(x,y), d=stats().def;
+    if(d<p){ log(`좀비 소굴 발견! 방어력 ${p} 이상 필요 (현재 ${d.toFixed(1)}). 방어탑을 더 지으세요.`,"bad"); t.s="seen"; render(); return; }
+  }
+  pay(c); t.s="owned";
+  if(t.t==="ruin"){
+    const r=rnd(["wood","food","stone"]), n=10+Math.floor(Math.random()*20);
+    S.res[r]+=n; log(`폐허를 수색해 ${RN[r]} ${n}을(를) 얻었습니다.`,"ok");
+  } else if(t.t==="nest"){ log("좀비 소굴을 소탕했습니다!","ok"); }
+  render(); save();
+}
+function build(x,y,k){
+  const t=S.g[y][x], b=B[k]; if(t.b||!can(b.cost)) return;
+  pay(b.cost); t.b=k; t.lv=1; render(); save();
+}
+const upCost=t=>{const c={};for(const[k,v]of Object.entries(B[t.b].cost))c[k]=Math.ceil(v*t.lv*1.5);return c;};
+function upgrade(x,y){
+  const t=S.g[y][x]; if(!t.b||t.lv>=5) return; const c=upCost(t); if(!can(c)) return;
+  pay(c); t.lv++; render(); save();
+}
+
+function render(){
+  const st=stats(), r=S.res;
+  document.getElementById("res").innerHTML=
+    `<span>🪵 <b>${Math.floor(r.wood)}</b> <small class=mut>+${st.prod.wood.toFixed(1)}</small></span>`+
+    `<span>🍖 <b>${Math.floor(r.food)}</b> <small class=mut>${(st.prod.food-st.eat>=0?"+":"")}${(st.prod.food-st.eat).toFixed(1)}</small></span>`+
+    `<span>🪨 <b>${Math.floor(r.stone)}</b> <small class=mut>+${st.prod.stone.toFixed(1)}</small></span>`+
+    `<span>👥 <b>${S.pop}</b>/${st.cap}</span><span>🛡️ <b>${st.def.toFixed(1)}</b></span>`+
+    `<span class="${S.wt<10?"warn":""}">🧟 습격 ${S.wave+1}회차 (${4+(S.wave+1)*3}) <b>${Math.ceil(S.wt)}s</b></span>`;
+  const el=document.getElementById("grid"); el.innerHTML="";
+  for(let y=0;y<N;y++)for(let x=0;x<N;x++){
+    const t=S.g[y][x], b=document.createElement("button");
+    const fr=front(x,y);
+    b.className="t "+(t.s==="owned"?"owned":(fr||t.s==="seen")?"front":"fog")+(sel&&sel[0]===x&&sel[1]===y?" sel":"");
+    b.setAttribute("aria-label",`${x},${y}`);
+    b.textContent=t.s==="owned"?T[t.t].e:(t.s==="seen"?"🧟":(fr?"?":"·"));
+    if(t.s==="owned"&&t.b) b.innerHTML+=`<span class=b>${B[t.b].e}</span><span class=lv>${t.lv}</span>`;
+    b.onclick=()=>{ sel=[x,y]; render(); };
+    el.appendChild(b);
+  }
+  renderInfo();
+  document.getElementById("log").innerHTML=S.log.map(l=>`<div class="${l.k||""}">${l.m}</div>`).join("")||"<div>기록 없음</div>";
+}
+function renderInfo(){
+  const el=document.getElementById("info");
+  if(S.over){ el.innerHTML="<b class=warn>게임 오버</b> — 버틴 습격 "+S.wave+"회. '새 게임'으로 다시 시작하세요."; return; }
+  if(!sel){ el.innerHTML="<span class=mut>타일을 선택하세요. 점선 테두리(?)가 개척 가능한 타일입니다.</span>"; return; }
+  const [x,y]=sel, t=S.g[y][x];
+  el.innerHTML=""; const add=h=>{const d=document.createElement("div");d.innerHTML=h;el.appendChild(d);return d;};
+  const btn=(label,dis,fn)=>{const b=document.createElement("button");b.textContent=label;b.disabled=dis;b.onclick=fn;b.style.margin="4px 6px 0 0";el.appendChild(b);};
+  if(t.s==="owned"){
+    add(`<b>${T[t.t].e} ${T[t.t].n}</b> (${x},${y})${t.b?` · ${B[t.b].e} ${B[t.b].n} Lv.${t.lv}`:""}`);
+    if(t.t==="base"){ add("<span class=mut>쉘터: 기본 수용 6명, 방어 +3</span>"); return; }
+    if(!t.b){
+      Object.entries(B).filter(([k,b])=>b.on.includes(t.t)).forEach(([k,b])=>
+        btn(`${b.e} ${b.n} (${fmtC(b.cost)}) — ${b.d}`,!can(b.cost),()=>build(x,y,k)));
+    } else {
+      const c=upCost(t);
+      btn(t.lv>=5?"최대 레벨":`⬆ 업그레이드 (${fmtC(c)})`,t.lv>=5||!can(c),()=>upgrade(x,y));
+    }
+  } else if(front(x,y)){
+    const c=clearCost();
+    add(`<b>안개 낀 타일</b> (${x},${y}) — 개척하면 지형이 드러납니다.`);
+    btn(`개척 (${fmtC(c)})`,!can(c),()=>clearTile(x,y));
+  } else if(t.s==="seen"){
+    const p=nestPower(x,y), c=clearCost();
+    add(`<b>🧟 좀비 소굴</b> — 방어력 ${p} 이상이면 소탕 가능 (현재 ${stats().def.toFixed(1)})`);
+    btn(`소탕 (${fmtC(c)})`,!can(c),()=>clearTile(x,y));
+  } else add("<span class=mut>아직 닿을 수 없는 타일입니다. 인접한 타일부터 개척하세요.</span>");
+}
+
+function startLoop(){
+  clearInterval(tick); let last=performance.now(), acc=0;
+  tick=setInterval(()=>{
+    const now=performance.now(); const dt=Math.min((now-last)/1000,1)*speed; last=now;
+    step(dt); acc+=dt; if(acc>=0.5){ acc=0; save(); }
+    render();
+  },250);
+}
+function initSpeeds(){
+  const el=document.getElementById("speeds"); el.innerHTML="";
+  SPEEDS.forEach(v=>{const b=document.createElement("button");b.textContent="×"+v;b.setAttribute("aria-pressed",v===speed);b.onclick=()=>{speed=v;initSpeeds();};el.appendChild(b);});
+}
+document.getElementById("reset").onclick=()=>{ if(confirm("새 게임을 시작할까요? 현재 진행이 사라집니다.")){ S=newState(); sel=null; save(); render(); } };
+S=load()||newState();
+initSpeeds(); render(); startLoop();
+})();
+</script>
+</body>
+</html>
