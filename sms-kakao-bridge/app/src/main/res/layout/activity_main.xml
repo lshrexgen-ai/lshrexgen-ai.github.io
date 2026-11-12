@@ -1,0 +1,74 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:fillViewport="true">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="16dp">
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="상태"
+            android:textStyle="bold"
+            android:textSize="16sp" />
+
+        <TextView android:id="@+id/statusNotif" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="8dp" />
+        <TextView android:id="@+id/statusPerms" android:layout_width="match_parent" android:layout_height="wrap_content" />
+        <TextView android:id="@+id/statusBattery" android:layout_width="match_parent" android:layout_height="wrap_content" />
+        <TextView android:id="@+id/statusTarget" android:layout_width="match_parent" android:layout_height="wrap_content" />
+
+        <Button android:id="@+id/btnNotifAccess" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="8dp" android:text="1. 알림 접근 허용 (설정 열기)" />
+        <Button android:id="@+id/btnPerms" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="2. 문자·연락처·알림 권한 요청" />
+        <Button android:id="@+id/btnBattery" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="3. 배터리 최적화 제외" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="20dp"
+            android:text="설정"
+            android:textStyle="bold"
+            android:textSize="16sp" />
+
+        <EditText
+            android:id="@+id/roomName"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="콘솔 방 이름 (봇 계정 카톡에 보이는 내 이름)"
+            android:inputType="text" />
+
+        <EditText
+            android:id="@+id/userIdFilter"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="프로필 ID 필터 (듀얼 메신저는 보통 95, 비우면 전체)"
+            android:inputType="number" />
+
+        <CheckBox android:id="@+id/lookupContacts" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="연락처 이름 표시 / @이름 으로 보내기" />
+        <CheckBox android:id="@+id/replyToLast" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="@없는 메시지는 마지막 문자 발신자에게 답장" />
+        <CheckBox android:id="@+id/sendAck" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="문자 전송 결과를 카톡으로 알림" />
+
+        <Button android:id="@+id/btnSave" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="저장" />
+        <Button android:id="@+id/btnTest" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="카톡으로 테스트 메시지 보내기" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="20dp"
+            android:text="최근 감지된 카톡 방 (이름 (user N))"
+            android:textStyle="bold" />
+        <TextView android:id="@+id/recentRooms" android:layout_width="match_parent" android:layout_height="wrap_content" android:fontFamily="monospace" android:textSize="12sp" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="20dp"
+            android:text="로그"
+            android:textStyle="bold" />
+        <TextView android:id="@+id/log" android:layout_width="match_parent" android:layout_height="wrap_content" android:fontFamily="monospace" android:textSize="11sp" />
+    </LinearLayout>
+</ScrollView>
