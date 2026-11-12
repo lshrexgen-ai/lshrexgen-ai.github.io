@@ -94,7 +94,11 @@ class MainActivity : AppCompatActivity() {
         val listenerOn = notificationAccessGranted()
         b.statusNotif.text = (if (listenerOn) "✅" else "❌") + " 알림 접근 권한" +
             (if (listenerOn && KakaoNotificationListener.connected) " (연결됨)" else "")
-        b.statusPerms.text = (if (allPermsGranted()) "✅" else "❌") + " 문자·연락처·알림 권한"
+        val missing = permissions.filter {
+            ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
+        }.map { it.substringAfterLast('.') }
+        b.statusPerms.text = if (missing.isEmpty()) "✅ 문자·연락처·알림 권한"
+        else "❌ 권한 없음: ${missing.joinToString(", ")}"
         val pm = getSystemService(PowerManager::class.java)
         b.statusBattery.text = (if (pm.isIgnoringBatteryOptimizations(packageName)) "✅" else "⚠️") + " 배터리 최적화 제외"
         b.statusTarget.text = (if (KakaoBridge.hasTarget) "✅" else "⏳") + " 카톡 답장 경로" +
