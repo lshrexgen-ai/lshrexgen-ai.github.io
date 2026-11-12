@@ -26,27 +26,53 @@ object KakaoBridge {
 
     @Volatile private var target: ReplyTarget? = null
     private val queue = ArrayDeque<String>()
+    @Volatile private var loaded = false
+
+    /** Restore the outgoing queue saved before the process was killed. */
+    private fun load(ctx: Context) {
+        if (loaded) return
+        synchronized(queue) {
+            if (loaded) return
+            val raw = Prefs.get(ctx).pendingQueue
+            if (raw.isNotEmpty()) runCatching {
+                val arr = org.json.JSONArray(raw)
+                for (i in 0 until arr.length()) queue.addLast(arr.getString(i))
+            }
+            loaded = true
+            if (queue.isNotEmpty()) EventLog.add("대기 중인 카톡 메시지 ${queue.size}건 복원")
+        }
+    }
+
+    private fun persist(ctx: Context) {
+        val json = synchronized(queue) { org.json.JSONArray(queue.toList()).toString() }
+        Prefs.get(ctx).pendingQueue = if (json == "[]") "" else json
+    }
+
+    val pendingCount: Int get() = synchronized(queue) { queue.size }
 
     val hasTarget: Boolean get() = target != null
 
     /** Called by the notification listener whenever a notification for the console room arrives. */
-    fun updateTarget(ctx: Context, notification: Notification, userId: Int) {
+    fun updateTarget(ctx: Context, notification: Notification, userId: Int, flush: Boolean = true) {
         val action = notification.actions?.firstOrNull { a -> a.remoteInputs?.isNotEmpty() == true } ?: return
         val ri = action.remoteInputs.first()
         val first = target == null
         target = ReplyTarget(action, ri, userId)
         if (first) EventLog.add("카톡 답장 경로 확보 (user $userId)")
-        flush(ctx)
+        if (flush) flush(ctx)
     }
 
     /** Queue [text] for the room and try to send immediately. */
     fun send(ctx: Context, text: String) {
+        load(ctx)
         synchronized(queue) { queue.addLast(text) }
+        persist(ctx)
         flush(ctx)
     }
 
     /** Send directly, bypassing the queue. Returns false when no reply action is cached yet. */
     fun sendNow(ctx: Context, text: String): Boolean {
+        if (target == null) KakaoNotificationListener.recoverTarget()
         val t = target ?: return false
         return try {
             val intent = Intent()
@@ -64,7 +90,9 @@ object KakaoBridge {
         }
     }
 
-    private fun flush(ctx: Context) {
+    fun flush(ctx: Context) {
+        load(ctx)
+        if (target == null) KakaoNotificationListener.recoverTarget()
         if (target == null) {
             val n = synchronized(queue) { queue.size }
             if (n > 0) notifyNeedPing(ctx, n)
@@ -74,6 +102,7 @@ object KakaoBridge {
             val next = synchronized(queue) { queue.peekFirst() } ?: break
             if (!sendNow(ctx, next)) break
             synchronized(queue) { queue.pollFirst() }
+            persist(ctx)
             EventLog.add("카톡 전송: ${next.lineSequence().first().take(40)}")
         }
         if (synchronized(queue) { queue.isEmpty() }) {

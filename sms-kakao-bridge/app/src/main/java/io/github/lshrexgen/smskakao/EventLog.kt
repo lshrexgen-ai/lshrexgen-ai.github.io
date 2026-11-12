@@ -16,6 +16,16 @@ object EventLog {
     private val fmt = SimpleDateFormat("MM-dd HH:mm:ss", Locale.KOREA)
     private val main = Handler(Looper.getMainLooper())
     private val listeners = mutableSetOf<(List<String>) -> Unit>()
+    @Volatile private var prefs: Prefs? = null
+
+    /** Load lines saved by a previous process and start persisting new ones. */
+    @Synchronized
+    fun init(ctx: android.content.Context) {
+        if (prefs != null) return
+        val p = Prefs.get(ctx)
+        prefs = p
+        p.savedLog.split('\n').filter { it.isNotBlank() }.forEach { lines.addLast(it) }
+    }
 
     @Synchronized
     fun add(msg: String) {
@@ -23,6 +33,7 @@ object EventLog {
         lines.addFirst("${fmt.format(Date())}  $msg")
         while (lines.size > MAX) lines.removeLast()
         val snapshot = lines.toList()
+        prefs?.savedLog = snapshot.joinToString("\n")
         main.post { listeners.toList().forEach { it(snapshot) } }
     }
 

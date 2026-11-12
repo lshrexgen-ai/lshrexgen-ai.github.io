@@ -20,16 +20,50 @@ class KakaoNotificationListener : NotificationListenerService() {
     /** Rooms seen recently, newest first, for the settings screen ("name (user N)"). */
     companion object {
         @Volatile var connected = false
+        @Volatile private var instance: KakaoNotificationListener? = null
         val recentRooms = ArrayDeque<String>()
+
+        /**
+         * After a process restart the cached reply action is gone. KakaoTalk notifications that are
+         * still in the shade carry a valid one, so look there first.
+         */
+        fun recoverTarget(): Boolean {
+            val svc = instance ?: return false
+            val prefs = Prefs.get(svc)
+            if (prefs.roomName.isEmpty()) return false
+            val filter = prefs.userIdFilter.toIntOrNull()
+            val active = runCatching { svc.activeNotifications }.getOrNull() ?: return false
+            val match = active
+                .filter { it.packageName == KakaoBridge.KAKAO_PACKAGE }
+                .filter { filter == null || it.user.hashCode() == filter }
+                .filter { roomOf(it.notification) == prefs.roomName }
+                .filter { sbn -> sbn.notification.actions?.any { it.remoteInputs?.isNotEmpty() == true } == true }
+                .maxByOrNull { it.postTime } ?: return false
+            KakaoBridge.updateTarget(svc, match.notification, match.user.hashCode(), flush = false)
+            EventLog.add("알림창에 남은 카톡 알림에서 답장 경로 복구")
+            return true
+        }
+
+        private fun roomOf(n: Notification): String {
+            val e = n.extras ?: return ""
+            return (e.getCharSequence(Notification.EXTRA_CONVERSATION_TITLE)
+                ?: e.getCharSequence(Notification.EXTRA_SUB_TEXT)
+                ?: e.getCharSequence(Notification.EXTRA_TITLE))?.toString()?.trim() ?: ""
+        }
     }
 
     override fun onListenerConnected() {
         connected = true
+        instance = this
+        EventLog.init(this)
         EventLog.add("알림 리스너 연결됨")
+        BridgeService.start(this)
+        worker.execute { KakaoBridge.flush(this) }
     }
 
     override fun onListenerDisconnected() {
         connected = false
+        instance = null
         EventLog.add("알림 리스너 끊김")
     }
 
@@ -41,9 +75,7 @@ class KakaoNotificationListener : NotificationListenerService() {
 
         val userId = sbn.user.hashCode() // UserHandle.hashCode() == user id (0 = owner, 95 = Dual Messenger)
         val title = extras.getCharSequence(Notification.EXTRA_TITLE)?.toString() ?: ""
-        val conversation = extras.getCharSequence(Notification.EXTRA_CONVERSATION_TITLE)?.toString()
-        val subText = extras.getCharSequence(Notification.EXTRA_SUB_TEXT)?.toString()
-        val room = (conversation ?: subText ?: title).trim()
+        val room = roomOf(n)
         if (room.isEmpty()) return
 
         val (sender, text, time) = lastMessage(extras) ?: Triple(

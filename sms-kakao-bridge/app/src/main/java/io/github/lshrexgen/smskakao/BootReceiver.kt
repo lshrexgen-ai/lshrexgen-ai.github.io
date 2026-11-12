@@ -6,6 +6,10 @@ import android.content.Intent
 
 class BootReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
-        if (intent.action == Intent.ACTION_BOOT_COMPLETED) BridgeService.start(context)
+        if (intent.action == Intent.ACTION_BOOT_COMPLETED) {
+            EventLog.init(context)
+            EventLog.add("부팅 후 시작")
+            BridgeService.start(context)
+        }
     }
 }
