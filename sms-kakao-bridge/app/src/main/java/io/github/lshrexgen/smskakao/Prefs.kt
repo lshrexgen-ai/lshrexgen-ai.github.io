@@ -32,6 +32,16 @@ class Prefs(context: Context) {
         get() = sp.getBoolean("sendAck", true)
         set(v) = sp.edit().putBoolean("sendAck", v).apply()
 
+    /** JSON array of texts waiting for a KakaoTalk reply path. */
+    var pendingQueue: String
+        get() = sp.getString("pendingQueue", "") ?: ""
+        set(v) = sp.edit().putString("pendingQueue", v).commit().let { }
+
+    /** Recent log lines, newline separated, so the log survives process restarts. */
+    var savedLog: String
+        get() = sp.getString("savedLog", "") ?: ""
+        set(v) = sp.edit().putString("savedLog", v).apply()
+
     var lastSender: String
         get() = sp.getString("lastSender", "") ?: ""
         set(v) = sp.edit().putString("lastSender", v).apply()

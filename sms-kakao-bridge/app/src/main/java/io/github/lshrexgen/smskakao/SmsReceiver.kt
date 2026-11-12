@@ -19,6 +19,7 @@ class SmsReceiver : BroadcastReceiver() {
             bySender.getOrPut(from) { StringBuilder() }.append(m.messageBody ?: "")
         }
 
+        EventLog.init(context)
         val prefs = Prefs.get(context)
         val pending = goAsync()
         Thread {

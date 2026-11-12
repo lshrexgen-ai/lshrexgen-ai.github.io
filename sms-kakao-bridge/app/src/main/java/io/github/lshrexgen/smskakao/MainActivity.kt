@@ -35,6 +35,7 @@ class MainActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        EventLog.init(this)
         b = ActivityMainBinding.inflate(layoutInflater)
         setContentView(b.root)
 
@@ -102,7 +103,8 @@ class MainActivity : AppCompatActivity() {
         val pm = getSystemService(PowerManager::class.java)
         b.statusBattery.text = (if (pm.isIgnoringBatteryOptimizations(packageName)) "✅" else "⚠️") + " 배터리 최적화 제외"
         b.statusTarget.text = (if (KakaoBridge.hasTarget) "✅" else "⏳") + " 카톡 답장 경로" +
-            (if (KakaoBridge.hasTarget) "" else " (봇 카톡에 메시지 1개 보내면 생김)")
+            (if (KakaoBridge.hasTarget) "" else " (봇 카톡에 메시지 1개 보내면 생김)") +
+            (if (KakaoBridge.pendingCount > 0) " · 대기 ${KakaoBridge.pendingCount}건" else "")
         val rooms = synchronized(KakaoNotificationListener.recentRooms) { KakaoNotificationListener.recentRooms.toList() }
         b.recentRooms.text = if (rooms.isEmpty()) "아직 감지된 카톡 알림 없음" else rooms.joinToString("\n")
     }
