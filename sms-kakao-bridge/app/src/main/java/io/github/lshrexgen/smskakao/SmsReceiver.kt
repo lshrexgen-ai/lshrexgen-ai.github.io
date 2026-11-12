@@ -25,6 +25,7 @@ class SmsReceiver : BroadcastReceiver() {
         Thread {
             try {
                 for ((from, body) in bySender) {
+                    if (!Dedup.firstTime(body.toString())) continue
                     val name = if (prefs.lookupContacts) Contacts.nameFor(context, from) else null
                     val header = if (name != null) "📩 $name ($from)" else "📩 $from"
                     prefs.lastSender = from
