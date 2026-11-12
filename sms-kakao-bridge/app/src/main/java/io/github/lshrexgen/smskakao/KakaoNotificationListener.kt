@@ -55,15 +55,31 @@ class KakaoNotificationListener : NotificationListenerService() {
         rememberRoom("$room (user $userId)")
 
         val prefs = Prefs.get(this)
-        if (prefs.roomName.isEmpty() || room != prefs.roomName) return
-        prefs.userIdFilter.toIntOrNull()?.let { if (it != userId) return }
-
-        KakaoBridge.updateTarget(this, n, userId)
+        val filter = prefs.userIdFilter.toIntOrNull()
+        val hasReply = n.actions?.any { a -> a.remoteInputs?.isNotEmpty() == true } == true
 
         // KakaoTalk re-posts the same notification when it updates; process each message once.
         val key = "$userId|$room|$time|$text"
         if (key == lastKey) return
         lastKey = key
+
+        // Diagnostic dump for the profile we care about (or every non-owner profile when unset).
+        if (filter == userId || (filter == null && userId != 0)) {
+            val msgCount = messageCount(extras)
+            EventLog.add(
+                "알림 user=$userId 제목=\"$title\" 방=\"$room\" 보낸이=\"$sender\" " +
+                    "내용=\"${text.take(40)}\" 메시지수=$msgCount 답장액션=${if (hasReply) "있음" else "없음"} " +
+                    "공개=${n.visibility}"
+            )
+            if (room == "새 알림" || text.contains("새 메시지가")) {
+                EventLog.add("※ 봇 카톡의 알림 미리보기(내용 표시)가 꺼져 있습니다. 카톡 설정 → 알림 에서 켜 주세요")
+            }
+        }
+
+        if (prefs.roomName.isEmpty() || room != prefs.roomName) return
+        filter?.let { if (it != userId) return }
+
+        KakaoBridge.updateTarget(this, n, userId)
 
         worker.execute { Commands.handle(this, sender, text) }
     }
@@ -82,6 +98,13 @@ class KakaoNotificationListener : NotificationListenerService() {
             ?: (last.getParcelable("sender_person", android.app.Person::class.java))?.name?.toString()
             ?: ""
         return Triple(sender, text, last.getLong("time"))
+    }
+
+    private fun messageCount(extras: Bundle): Int = if (Build.VERSION.SDK_INT >= 33) {
+        extras.getParcelableArray(Notification.EXTRA_MESSAGES, Bundle::class.java)?.size ?: 0
+    } else {
+        @Suppress("DEPRECATION")
+        extras.getParcelableArray(Notification.EXTRA_MESSAGES)?.size ?: 0
     }
 
     private fun rememberRoom(label: String) {
