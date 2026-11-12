@@ -44,6 +44,26 @@ class KakaoNotificationListener : NotificationListenerService() {
             return true
         }
 
+        /** Re-cache reply actions of SMS notifications still in the shade (after a restart). */
+        fun rescanSms() {
+            val svc = instance ?: return
+            val active = runCatching { svc.activeNotifications }.getOrNull() ?: return
+            for (sbn in active.sortedBy { it.postTime }) {
+                if (sbn.packageName !in SmsNotifications.PACKAGES) continue
+                val n = sbn.notification
+                if (n.flags and Notification.FLAG_GROUP_SUMMARY != 0) continue
+                val label = smsLabel(n) ?: continue
+                SmsNotifications.remember(label, n, sbn.postTime)
+            }
+        }
+
+        fun smsLabel(n: Notification): String? {
+            val e = n.extras ?: return null
+            val title = e.getCharSequence(Notification.EXTRA_TITLE)?.toString()?.trim() ?: ""
+            return (e.getCharSequence(Notification.EXTRA_CONVERSATION_TITLE)?.toString()?.trim()
+                ?.takeIf { it.isNotEmpty() } ?: title).takeIf { it.isNotEmpty() }
+        }
+
         private fun roomOf(n: Notification): String {
             val e = n.extras ?: return ""
             return (e.getCharSequence(Notification.EXTRA_CONVERSATION_TITLE)
@@ -58,7 +78,7 @@ class KakaoNotificationListener : NotificationListenerService() {
         EventLog.init(this)
         EventLog.add("알림 리스너 연결됨")
         BridgeService.start(this)
-        worker.execute { KakaoBridge.flush(this) }
+        worker.execute { rescanSms(); KakaoBridge.flush(this) }
     }
 
     override fun onListenerDisconnected() {
@@ -68,6 +88,7 @@ class KakaoNotificationListener : NotificationListenerService() {
     }
 
     override fun onNotificationPosted(sbn: StatusBarNotification) {
+        if (sbn.packageName in SmsNotifications.PACKAGES) { onSmsNotification(sbn); return }
         if (sbn.packageName != KakaoBridge.KAKAO_PACKAGE) return
         val n = sbn.notification
         if (n.flags and Notification.FLAG_GROUP_SUMMARY != 0) return
@@ -114,6 +135,37 @@ class KakaoNotificationListener : NotificationListenerService() {
         KakaoBridge.updateTarget(this, n, userId)
 
         worker.execute { Commands.handle(this, sender, text) }
+    }
+
+    private var lastSmsKey: String? = null
+
+    /** A notification from the phone's messaging app = an incoming SMS. */
+    private fun onSmsNotification(sbn: StatusBarNotification) {
+        val n = sbn.notification
+        if (n.flags and Notification.FLAG_GROUP_SUMMARY != 0) return
+        val extras = n.extras ?: return
+        val title = extras.getCharSequence(Notification.EXTRA_TITLE)?.toString()?.trim() ?: ""
+        val label = smsLabel(n) ?: return
+        val (_, text, time) = lastMessage(extras) ?: Triple(
+            title,
+            extras.getCharSequence(Notification.EXTRA_BIG_TEXT)?.toString()
+                ?: extras.getCharSequence(Notification.EXTRA_TEXT)?.toString() ?: return,
+            sbn.postTime,
+        )
+        val hasReply = n.actions?.any { a -> a.remoteInputs?.isNotEmpty() == true } == true
+        if (hasReply) SmsNotifications.remember(label, n, sbn.postTime)
+
+        val key = "$label|$time|$text"
+        if (key == lastSmsKey) return
+        lastSmsKey = key
+
+        if (Dedup.wasSentByUs(text)) return          // our own reply echoed back in the conversation
+        EventLog.add("문자 알림: $label 답장액션=${if (hasReply) "있음" else "없음"}")
+        if (!Dedup.firstTime(text)) return            // already forwarded by SmsReceiver
+
+        val prefs = Prefs.get(this)
+        prefs.lastSender = label
+        worker.execute { KakaoBridge.send(this, "📩 $label\n$text") }
     }
 
     /** Last entry of a MessagingStyle notification: (sender, text, time). */
